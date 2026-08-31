@@ -1,0 +1,29 @@
+# Entorno virtual de Python (cada persona crea el suyo con requirements.txt)
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Datos reales del Excel — nunca se suben (información de trabajo/personal)
+# Deja tu propio archivo en data/ localmente; no se versiona.
+data/*.xlsx
+data/*.xlsm
+data/*.backup.xlsx
+data/*diagramas/2-pago_con_puntos.excalidraw
+data/*documentos/2-Minuta_Reunion_Carnes.docx
+data/*documentos/3-substitution.pdf
+data/*documentos/4-Base_Conocimiento_Subsistemas_Picking_Jumbo.md
+data/*documentos/5-Minuta_Reunion_Prorrateo_Copago_Puntos.pdf
+
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editores
+.vscode/
+.idea/
+
+# Logs / temporales
+*.log

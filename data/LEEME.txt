@@ -1,0 +1,1 @@
+Coloca aquí tu archivo `Seguimiento_y_planificacion.xlsx` (no se sube a Git — ver `.gitignore`).

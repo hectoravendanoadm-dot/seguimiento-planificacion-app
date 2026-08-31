@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Seguimiento y Planificación</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">SP</span>
+    <div class="brand-text">
+      <h1>Seguimiento y Planificación</h1>
+      <p id="file-status" class="file-status">cargando…</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <button id="btn-limpiar-supabase" class="btn btn-ghost btn-sm" title="Elimina los respaldos antiguos con marca de tiempo que quedaron de versiones anteriores">🧹 Limpiar respaldos antiguos</button>
+    <button id="btn-backup-supabase" class="btn btn-ghost">☁ Respaldar en Supabase</button>
+    <button id="btn-export" class="btn btn-ghost">Descargar Excel</button>
+    <button id="btn-new" class="btn btn-primary">+ Nueva tarea</button>
+  </div>
+</header>
+
+<section class="stats-row" id="stats-row"></section>
+
+<section class="toolbar">
+  <div class="view-toggle">
+    <button class="view-btn active" data-view="tabla">Tabla</button>
+    <button class="view-btn" data-view="kanban">Kanban</button>
+    <button class="view-btn" data-view="planificacion">Planificación</button>
+    <button class="view-btn" data-view="equipo">Equipo y Proyectos</button>
+    <button class="view-btn" data-view="pasosprod">Pasos a Prod</button>
+    <button class="view-btn" data-view="incidencias">Incidencias</button>
+    <button class="view-btn" data-view="documentacion">Documentación</button>
+  </div>
+  <div class="filters" id="filters-bar">
+    <select id="f-proyecto"><option value="">Todos los proyectos</option></select>
+    <select id="f-estado"><option value="">Todos los estados</option></select>
+    <select id="f-prioridad"><option value="">Todas las prioridades</option></select>
+    <select id="f-responsable"><option value="">Todos los responsables</option></select>
+    <input id="f-search" type="text" placeholder="Buscar tarea, nota…">
+  </div>
+</section>
+
+<main id="content">
+  <div id="view-tabla" class="view-panel active">
+    <table class="tareas-table">
+      <thead>
+        <tr>
+          <th>Proyecto</th><th>Tarea</th><th>Subtarea</th><th>Responsable</th>
+          <th>Estado</th><th>Prioridad</th><th>% Avance</th>
+          <th>Inicio</th><th>Fin</th><th>H. Est.</th><th>H. Real</th>
+          <th>Notas</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="tabla-body"></tbody>
+    </table>
+    <p id="empty-state" class="empty-state" style="display:none">No hay tareas que coincidan con los filtros.</p>
+  </div>
+
+  <div id="view-kanban" class="view-panel">
+    <div class="kanban-board" id="kanban-board"></div>
+  </div>
+
+  <div id="view-planificacion" class="view-panel">
+    <div class="plan-toolbar">
+      <p class="plan-hint">Cada proyecto muestra su rango estimado (franja rayada) y, debajo, solo las tareas marcadas "Es un desarrollo clave" en la pestaña Tabla que apuntan a él, con su fecha real.</p>
+      <div class="plan-toolbar-actions">
+        <div class="cal-year-nav-only" id="roadmap-year-nav">
+          <button class="btn btn-ghost btn-sm" id="roadmap-year-prev">←</button>
+          <span id="roadmap-year-label">2026</span>
+          <button class="btn btn-ghost btn-sm" id="roadmap-year-next">→</button>
+        </div>
+      </div>
+    </div>
+    <div id="roadmap-gantt"></div>
+    <div id="roadmap-sin-fecha" class="cal-sin-fecha" style="display:none">
+      <h3>Tareas clave sin fecha (no se pueden dibujar)</h3>
+      <div class="chip-list" id="roadmap-sin-fecha-list"></div>
+    </div>
+  </div>
+
+  <div id="view-equipo" class="view-panel">
+    <p class="plan-hint">
+      Gestiona aquí los proyectos y responsables disponibles en los desplegables de Tabla y
+      Roadmap. Los equipos y proyectos cambian con el tiempo — agrega, renombra o
+      retira personas y proyectos sin tocar el Excel directamente.
+    </p>
+    <div class="equipo-grid">
+      <div class="equipo-panel">
+        <div class="equipo-panel-header">
+          <h3>Proyectos</h3>
+          <button class="btn btn-primary btn-sm" onclick="addProyecto()">+ Agregar</button>
+        </div>
+        <ul class="equipo-list" id="equipo-list-proyectos"></ul>
+      </div>
+      <div class="equipo-panel">
+        <div class="equipo-panel-header">
+          <h3>Responsables</h3>
+          <button class="btn btn-primary btn-sm" onclick="addListaItem('Responsable')">+ Agregar</button>
+        </div>
+        <ul class="equipo-list" id="equipo-list-Responsable"></ul>
+      </div>
+      <div class="equipo-panel">
+        <div class="equipo-panel-header">
+          <h3>Tipos de incidencia</h3>
+          <button class="btn btn-primary btn-sm" onclick="addListaItem('Tipo de incidencia')">+ Agregar</button>
+        </div>
+        <ul class="equipo-list" id="equipo-list-tipo-incidencia"></ul>
+      </div>
+      <div class="equipo-panel">
+        <div class="equipo-panel-header">
+          <h3>Productos</h3>
+          <button class="btn btn-primary btn-sm" onclick="addListaItem('Producto')">+ Agregar</button>
+        </div>
+        <ul class="equipo-list" id="equipo-list-producto"></ul>
+      </div>
+      <div class="equipo-panel">
+        <div class="equipo-panel-header">
+          <h3>Tipos de documento</h3>
+          <button class="btn btn-primary btn-sm" onclick="addListaItem('Tipo de Documento')">+ Agregar</button>
+        </div>
+        <ul class="equipo-list" id="equipo-list-tipo-documento"></ul>
+      </div>
+    </div>
+  </div>
+
+  <div id="view-pasosprod" class="view-panel">
+    <div class="plan-toolbar">
+      <p class="plan-hint">Registra aquí cada paso a producción de los desarrollos en curso, con su ticket OTC y de Jira.</p>
+      <div class="plan-toolbar-actions">
+        <button id="btn-pasos-new" class="btn btn-ghost-dark">+ Nuevo paso a prod</button>
+      </div>
+    </div>
+    <table class="tareas-table">
+      <thead>
+        <tr>
+          <th>Fecha</th><th>Tema</th><th>Producto</th><th>OTC</th><th>Ticket Jira</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="pasos-table-body"></tbody>
+    </table>
+    <p id="pasos-empty-state" class="empty-state" style="display:none">No hay pasos a producción registrados todavía.</p>
+  </div>
+
+  <div id="view-incidencias" class="view-panel">
+    <div class="plan-toolbar">
+      <p class="plan-hint">Registra aquí las incidencias reportadas en sala: cuántas veces se repitió, quién la atiende y su estado.</p>
+      <div class="plan-toolbar-actions">
+        <input type="file" id="incidencias-csv-input" accept=".csv" style="display:none">
+        <button id="btn-incidencias-import" class="btn btn-ghost-dark">Importar CSV</button>
+        <button id="btn-incidencias-new" class="btn btn-ghost-dark">+ Nueva incidencia</button>
+      </div>
+    </div>
+    <div class="filters" id="incidencias-filters-bar">
+      <select id="f-incidencia-estado"><option value="">Todos los estados</option></select>
+      <select id="f-incidencia-responsable-seguimiento"><option value="">Todos (seguimiento)</option></select>
+      <select id="f-incidencia-responsable-desarrollo"><option value="">Todos (desarrollo)</option></select>
+    </div>
+    <table class="tareas-table incidencias-table">
+      <thead>
+        <tr>
+          <th>Fecha reporte</th><th>Cant.</th><th>Producto</th><th>Título</th><th>Tipo</th>
+          <th>Descripción</th><th>Severidad</th><th id="th-incidencia-prioridad" class="th-sortable">Prioridad</th><th>Estado</th>
+          <th>Resp. seguimiento</th><th>Resp. desarrollo</th>
+          <th>Ticket Jira</th><th>Fecha resolución</th><th>Solución</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="incidencias-table-body"></tbody>
+    </table>
+    <p id="incidencias-empty-state" class="empty-state" style="display:none">No hay incidencias registradas todavía.</p>
+  </div>
+
+  <div id="view-documentacion" class="view-panel">
+    <div class="doc-subnav" id="doc-subnav">
+      <button class="doc-subnav-btn active" data-docsub="links">Links</button>
+      <button class="doc-subnav-btn" data-docsub="documentos">Documentos</button>
+      <button class="doc-subnav-btn" data-docsub="excalidraw">Instalar Excalidraw</button>
+      <button class="doc-subnav-btn" data-docsub="diagramas">Repositorio de diagramas</button>
+    </div>
+
+    <div id="docsub-links" class="doc-subpanel active">
+      <div class="plan-toolbar">
+        <p class="plan-hint">Links de interés y de uso cotidiano: tableros, documentación externa, dashboards, etc.</p>
+        <div class="plan-toolbar-actions">
+          <button id="btn-link-new" class="btn btn-ghost-dark">+ Nuevo link</button>
+        </div>
+      </div>
+      <table class="tareas-table">
+        <thead><tr><th>Fecha</th><th>URL</th><th>Comentario</th><th>Autor</th><th></th></tr></thead>
+        <tbody id="links-table-body"></tbody>
+      </table>
+      <p id="links-empty-state" class="empty-state" style="display:none">No hay links guardados todavía.</p>
+    </div>
+
+    <div id="docsub-documentos" class="doc-subpanel">
+      <div class="plan-toolbar">
+        <p class="plan-hint">Documentos de proyectos: minutas, contratos, boletas, manuales, etc.</p>
+        <div class="plan-toolbar-actions">
+          <input type="file" id="documento-file-input" style="display:none">
+          <button id="btn-documento-upload" class="btn btn-ghost-dark">+ Subir documento</button>
+        </div>
+      </div>
+      <table class="tareas-table">
+        <thead>
+          <tr><th>Fecha</th><th>Nombre</th><th>Proyecto</th><th>Tipo</th><th>Comentario</th><th>Autor</th><th>Tamaño</th><th></th></tr>
+        </thead>
+        <tbody id="documentos-table-body"></tbody>
+      </table>
+      <p id="documentos-empty-state" class="empty-state" style="display:none">No hay documentos guardados todavía.</p>
+    </div>
+
+    <div id="docsub-excalidraw" class="doc-subpanel">
+      <p class="plan-hint">
+        Excalidraw embebido: dibuja tu diagrama y, cuando quieras conservarlo, usa el propio botón de
+        Excalidraw "Export image" (ícono de descarga arriba a la izquierda del lienzo, o el menú ☰ → Export)
+        para guardarlo como PNG, SVG o archivo <code>.excalidraw</code> en tu computador. Luego súbelo en la
+        pestaña "Repositorio de diagramas". Requiere conexión a internet.
+      </p>
+      <div class="excalidraw-frame-wrap">
+        <iframe src="https://excalidraw.com" title="Excalidraw" loading="lazy"></iframe>
+      </div>
+    </div>
+
+    <div id="docsub-diagramas" class="doc-subpanel">
+      <div class="plan-toolbar">
+        <p class="plan-hint">Diagramas exportados desde Excalidraw (u otra herramienta): PNG, SVG o archivos .excalidraw.</p>
+        <div class="plan-toolbar-actions">
+          <input type="file" id="diagrama-file-input" style="display:none">
+          <button id="btn-diagrama-upload" class="btn btn-ghost-dark">+ Subir diagrama</button>
+        </div>
+      </div>
+      <table class="tareas-table">
+        <thead><tr><th>Fecha</th><th>Nombre</th><th>Comentario</th><th>Autor</th><th>Tamaño</th><th></th></tr></thead>
+        <tbody id="diagramas-table-body"></tbody>
+      </table>
+      <p id="diagramas-empty-state" class="empty-state" style="display:none">No hay diagramas guardados todavía.</p>
+    </div>
+  </div>
+</main>
+
+<div id="modal-overlay" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-title">Nueva tarea</h2>
+      <button id="modal-close" class="modal-close">&times;</button>
+    </div>
+    <form id="tarea-form" class="modal-body">
+      <div class="field-grid">
+        <label>Proyecto
+          <input list="dl-proyecto" name="Proyecto" required>
+          <datalist id="dl-proyecto"></datalist>
+        </label>
+        <label>Responsable
+          <div class="combo-wrap">
+            <input type="text" name="Responsable" class="combo-input" autocomplete="off" data-combo-list="Responsable">
+          </div>
+        </label>
+        <label>Tarea
+          <input type="text" name="Tarea" required>
+        </label>
+        <label>Subtarea
+          <input type="text" name="Subtarea">
+        </label>
+        <label>Estado
+          <select name="Estado">
+            <option>Sin iniciar</option><option>En curso</option>
+            <option>Completado</option><option>Bloqueado</option>
+            <option>Permanente</option><option>Cancelado</option>
+          </select>
+        </label>
+        <label>Prioridad
+          <select name="Prioridad">
+            <option>Baja</option><option>Media</option><option>Alta</option><option>Urgente</option>
+          </select>
+        </label>
+        <label>% Avance
+          <input type="number" name="% Avance" min="0" max="100" value="0">
+        </label>
+        <label>Fecha Inicio
+          <input type="date" name="Fecha Inicio">
+        </label>
+        <label>Fecha Fin
+          <input type="date" name="Fecha Fin">
+        </label>
+        <label>Horas Estimadas
+          <input type="text" name="Horas Estimadas" placeholder="ej: 5d">
+        </label>
+        <label>Horas Reales
+          <input type="text" name="Horas Reales" placeholder="ej: 3d">
+        </label>
+        <label class="field-full">Notas
+          <textarea name="Notas" rows="2"></textarea>
+        </label>
+        <label class="field-full">Log / evidencia técnica (opcional)
+          <textarea name="Log" rows="4" class="mono-textarea" placeholder="Pega aquí un log, stack trace o salida de consola…"></textarea>
+        </label>
+        <div class="plan-field-checkbox-group field-full">
+          <label class="plan-checkbox-label">
+            <input type="checkbox" name="Clave">
+            Es un desarrollo clave (agregarla también al Roadmap)
+          </label>
+          <p class="plan-field-hint">Se creará/actualizará automáticamente como tarea dentro del proyecto elegido arriba, en la pestaña Planificación.</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="btn-delete" class="btn btn-danger" style="display:none">Eliminar</button>
+        <div class="modal-footer-right">
+          <button type="button" id="btn-cancel" class="btn btn-ghost">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<!-- Generic form modal: used for add/edit task, project, month, week -->
+<div id="plan-modal-overlay" class="modal-overlay">
+  <div class="modal plan-modal">
+    <div class="modal-header">
+      <h2 id="plan-modal-title">Título</h2>
+      <button class="modal-close" onclick="closePlanFormModal(null)">&times;</button>
+    </div>
+    <div class="modal-body" id="plan-modal-body"></div>
+    <div class="modal-footer">
+      <button id="plan-modal-delete-btn" class="btn btn-danger" style="display:none">Eliminar</button>
+      <div class="modal-footer-right">
+        <button class="btn btn-ghost" onclick="closePlanFormModal(null)">Cancelar</button>
+        <button id="plan-modal-submit-btn" class="btn btn-primary">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm modal: used for delete confirmations -->
+<!-- View modal: visor de solo lectura para notas/log largos (icono -> clic -> ver) -->
+<div id="view-modal-overlay" class="modal-overlay">
+  <div class="modal view-modal">
+    <div class="modal-header">
+      <h2 id="view-modal-title">Detalle</h2>
+      <button class="modal-close" onclick="closeViewModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <pre id="view-modal-content" class="view-modal-content"></pre>
+    </div>
+    <div class="modal-footer">
+      <div class="modal-footer-right" style="width:100%; justify-content:flex-end; gap:8px;">
+        <button id="view-modal-copy-btn" class="btn btn-ghost" onclick="copyViewModalContent()">Copiar</button>
+        <button class="btn btn-primary" onclick="closeViewModal()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="confirm-modal-overlay" class="modal-overlay">
+  <div class="modal confirm-modal">
+    <div class="modal-header">
+      <h2 id="confirm-modal-title">¿Confirmar?</h2>
+      <button class="modal-close" onclick="closeConfirmModal(false)">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p id="confirm-modal-message" class="confirm-message"></p>
+    </div>
+    <div class="modal-footer">
+      <div class="modal-footer-right" style="width:100%; justify-content:flex-end;">
+        <button class="btn btn-ghost" onclick="closeConfirmModal(false)">Cancelar</button>
+        <button id="confirm-modal-ok-btn" class="btn btn-danger-solid">Eliminar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Cell modal: used for painting/editing a week cell -->
+<div id="cell-modal-overlay" class="modal-overlay">
+  <div class="modal cell-modal">
+    <div class="modal-header">
+      <h2 id="cell-modal-title">Editar semana</h2>
+      <button class="modal-close" onclick="closeCellModal(null)">&times;</button>
+    </div>
+    <div class="modal-body">
+      <label class="cell-modal-label-field">Texto (opcional)
+        <input type="text" id="cell-modal-label-input" placeholder="ej: Stand By, QA, TBD…">
+      </label>
+      <p class="cell-modal-color-heading">Color</p>
+      <div class="color-swatch-grid" id="cell-modal-swatches"></div>
+    </div>
+    <div class="modal-footer">
+      <button id="cell-modal-clear-btn" class="btn btn-danger">Quitar marca</button>
+      <div class="modal-footer-right">
+        <button class="btn btn-ghost" onclick="closeCellModal(null)">Cancelar</button>
+        <button id="cell-modal-save-btn" class="btn btn-primary">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
