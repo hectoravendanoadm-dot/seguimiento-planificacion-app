@@ -16,6 +16,7 @@ const state = {
   incidenciaFilters: { estado: "", responsableSeguimiento: "", responsableDesarrollo: "" },
   incidenciaSort: { column: "Prioridad", dir: "asc" },
   planCollapsed: new Set(),
+  roadmapCollapseInitialized: false,
   filters: { proyecto: "", estado: "", prioridad: "", responsable: "", search: "" },
   view: "tabla",
   editingRowId: null,
@@ -501,6 +502,12 @@ async function loadRoadmap() {
   try {
     const res = await api("/api/roadmap");
     state.roadmapData = res.data;
+    if (!state.roadmapCollapseInitialized) {
+      state.roadmapCollapseInitialized = true;
+      (res.data.proyectos || []).forEach((p) => {
+        if (p.tareas && p.tareas.length) state.planCollapsed.add(`p-${p.row_id}`);
+      });
+    }
   } catch (e) {
     showToast(e.message, true);
     state.roadmapData = { proyectos: [], sin_fecha: [] };
