@@ -507,8 +507,14 @@ async function loadRoadmap() {
   }
 }
 
+function daysInMonth(year, monthIndex) {
+  return new Date(year, monthIndex + 1, 0).getDate();
+}
+
 function monthsSpan(fechaInicio, fechaFin, year) {
-  // Convierte un rango de fechas (YYYY-MM-DD) a columnas de mes (0-11) recortadas al año visible.
+  // Convierte un rango de fechas (YYYY-MM-DD) a columnas de mes (0-11), recortadas al año
+  // visible, más la posición exacta del día dentro del mes de inicio/fin (0 a 1) para que
+  // la barra no ocupe el mes completo si la fecha real cae a mitad de mes.
   const ini = new Date(fechaInicio + "T00:00:00");
   const fin = new Date(fechaFin + "T00:00:00");
   const anioInicio = new Date(year, 0, 1);
@@ -516,7 +522,31 @@ function monthsSpan(fechaInicio, fechaFin, year) {
   if (fin < anioInicio || ini > anioFin) return null;
   const iniClip = ini < anioInicio ? anioInicio : ini;
   const finClip = fin > anioFin ? anioFin : fin;
-  return { colInicio: iniClip.getMonth(), colFin: finClip.getMonth() };
+
+  const colInicio = iniClip.getMonth();
+  const colFin = finClip.getMonth();
+  const startFrac = (iniClip.getDate() - 1) / daysInMonth(iniClip.getFullYear(), colInicio);
+  const endFrac = finClip.getDate() / daysInMonth(finClip.getFullYear(), colFin);
+
+  return { colInicio, colFin, startFrac, endFrac };
+}
+
+function barPosition(colInicio, colFin, startFrac, endFrac) {
+  // left/width expresados en "anchos de celda" (cada celda de mes = 100%), replicando la
+  // convención previa (barra completa = N*100% + (N-1)px de bordes) pero con offsets
+  // fraccionarios de día dentro del mes de inicio y de fin.
+  let spanFrac, borderPx;
+  if (colInicio === colFin) {
+    spanFrac = endFrac - startFrac;
+    borderPx = 0;
+  } else {
+    spanFrac = (1 - startFrac) + (colFin - colInicio - 1) + endFrac;
+    borderPx = colFin - colInicio;
+  }
+  return {
+    left: `calc(${startFrac * 100}% + 2px)`,
+    width: `calc(${spanFrac * 100}% + ${borderPx}px)`,
+  };
 }
 
 function renderRoadmap() {
@@ -545,6 +575,8 @@ function renderRoadmap() {
         colorHex: p.Color,
         colInicio: rango.colInicio,
         colFin: rango.colFin,
+        startFrac: rango.startFrac,
+        endFrac: rango.endFrac,
         comentario: t.Notas,
         onClick: () => openEdit(t.row_id),
       });
@@ -555,6 +587,8 @@ function renderRoadmap() {
       colorHex: p.Color,
       colInicio: rangoProyecto ? rangoProyecto.colInicio : null,
       colFin: rangoProyecto ? rangoProyecto.colFin : null,
+      startFrac: rangoProyecto ? rangoProyecto.startFrac : null,
+      endFrac: rangoProyecto ? rangoProyecto.endFrac : null,
       estimado: true,
       hijos,
       onClick: () => editProyecto(p.row_id),
@@ -578,8 +612,8 @@ function renderRoadmap() {
       for (let i = 0; i < 12; i++) {
         html += `<div class="cal-cell ${i % 3 === 0 ? "q-start" : ""}">`;
         if (fila.colInicio !== null && i === fila.colInicio) {
-          const width = `calc(${(fila.colFin - fila.colInicio + 1) * 100}% + ${(fila.colFin - fila.colInicio) * 1}px)`;
-          html += `<div class="cal-bar estimado" style="background:${fila.colorHex}; width:${width}" title="${fila.label} (estimado)" onclick="editProyecto(${fila.id.split("-")[1]})">${fila.label}</div>`;
+          const pos = barPosition(fila.colInicio, fila.colFin, fila.startFrac, fila.endFrac);
+          html += `<div class="cal-bar estimado" style="background:${fila.colorHex}; left:${pos.left}; width:${pos.width}" title="${fila.label} (estimado)" onclick="editProyecto(${fila.id.split("-")[1]})">${fila.label}</div>`;
         }
         html += `</div>`;
       }
@@ -590,8 +624,8 @@ function renderRoadmap() {
           for (let i = 0; i < 12; i++) {
             html += `<div class="cal-cell cal-cell-hijo ${i % 3 === 0 ? "q-start" : ""}">`;
             if (i === hijo.colInicio) {
-              const width = `calc(${(hijo.colFin - hijo.colInicio + 1) * 100}% + ${(hijo.colFin - hijo.colInicio) * 1}px)`;
-              html += `<div class="cal-bar cal-bar-hijo" style="background:${hijo.colorHex}; width:${width}" title="${hijo.label}" onclick="openEdit(${hijo.id.split("-")[1]})">${hijo.label}</div>`;
+              const pos = barPosition(hijo.colInicio, hijo.colFin, hijo.startFrac, hijo.endFrac);
+              html += `<div class="cal-bar cal-bar-hijo" style="background:${hijo.colorHex}; left:${pos.left}; width:${pos.width}" title="${hijo.label}" onclick="openEdit(${hijo.id.split("-")[1]})">${hijo.label}</div>`;
             }
             html += `</div>`;
           }
