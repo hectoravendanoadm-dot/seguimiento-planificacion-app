@@ -65,7 +65,7 @@ PLANIFICACION_DEFAULT_COLOR = "#F2A93B"
 COLUMNS = [
     "ID", "Proyecto", "Tarea", "Subtarea", "Responsable", "Estado",
     "Prioridad", "% Avance", "Fecha Inicio", "Fecha Fin",
-    "Horas Estimadas", "Horas Reales", "Notas", "Clave", "Log",
+    "Horas Estimadas", "Horas Reales", "Notas", "Clave", "Log", "Orden Roadmap",
 ]
 
 INCIDENCIAS_SHEET = "Incidencias"
@@ -362,6 +362,21 @@ def delete_proyecto(row_id):
     wb.close()
 
 
+def _roadmap_sort_key(t):
+    """Orden de las tareas clave dentro de un proyecto en el Roadmap: las que
+    tienen un 'Orden Roadmap' manual (asignado al usar las flechas ▲▼) van
+    primero, en ese orden; el resto se ordena por Fecha Inicio (más antigua
+    primero) — así el Roadmap se ve en cascada por defecto, sin que el usuario
+    tenga que ordenar nada a mano, pero permitiendo ajustar casos puntuales."""
+    orden = t.get("Orden Roadmap")
+    if orden not in (None, ""):
+        try:
+            return (0, float(orden))
+        except (TypeError, ValueError):
+            pass
+    return (1, t.get("Fecha Inicio") or "")
+
+
 def read_roadmap():
     """Vista derivada para el Roadmap: cada proyecto con su rango estimado, y
     como hijas solo las tareas marcadas 'Clave' que apuntan a ese proyecto —
@@ -382,11 +397,13 @@ def read_roadmap():
                 "Fecha Fin": t.get("Fecha Fin"),
                 "Estado": t.get("Estado"),
                 "Notas": t.get("Notas"),
+                "Orden Roadmap": t.get("Orden Roadmap"),
             }
             if not t.get("Fecha Inicio") or not t.get("Fecha Fin"):
                 sin_fecha.append({"row_id": t["row_id"], "label": label, "proyecto": p["Nombre"]})
             else:
                 hijas.append(item)
+        hijas.sort(key=_roadmap_sort_key)
         p["tareas"] = hijas
     return {"proyectos": proyectos, "sin_fecha": sin_fecha}
 
@@ -1428,6 +1445,66 @@ def update_tarea(row_id):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+def move_roadmap_task(row_id, direction):
+    """Mueve una tarea clave arriba/abajo dentro del orden en cascada de su
+    proyecto en el Roadmap. La primera vez que se mueve una tarea de un
+    proyecto, se fija un 'Orden Roadmap' explícito para TODAS sus tareas
+    clave (según el orden efectivo que tenían en ese momento — manual si ya
+    existía, o por fecha si no); de ahí en adelante ese proyecto queda bajo
+    control manual. Tareas clave nuevas que se agreguen después, sin orden
+    asignado, aparecerán al final hasta que también se reordenen a mano."""
+    backup_file()
+    wb = load_workbook(EXCEL_PATH)
+    ws = wb[TAREAS_SHEET]
+    if row_id < 2 or row_id > ws.max_row:
+        wb.close()
+        raise ValueError("Fila inválida")
+
+    proyecto_col = COLUMNS.index("Proyecto") + 1
+    clave_col = COLUMNS.index("Clave") + 1
+    orden_col = COLUMNS.index("Orden Roadmap") + 1
+    fecha_inicio_col = COLUMNS.index("Fecha Inicio") + 1
+
+    proyecto = ws.cell(row=row_id, column=proyecto_col).value
+    if ws.cell(row=row_id, column=clave_col).value != "Sí":
+        wb.close()
+        raise ValueError("Esta tarea no está marcada como desarrollo clave")
+
+    # Reunir todas las tareas clave del mismo proyecto, con su orden efectivo actual.
+    hermanas = []
+    for r in range(2, ws.max_row + 1):
+        if ws.cell(row=r, column=proyecto_col).value != proyecto:
+            continue
+        if ws.cell(row=r, column=clave_col).value != "Sí":
+            continue
+        fi = ws.cell(row=r, column=fecha_inicio_col).value
+        hermanas.append({
+            "row": r,
+            "orden": ws.cell(row=r, column=orden_col).value,
+            "fecha_inicio": fi.strftime("%Y-%m-%d") if isinstance(fi, (datetime, date)) else (fi or ""),
+        })
+
+    hermanas.sort(key=lambda t: _roadmap_sort_key({"Orden Roadmap": t["orden"], "Fecha Inicio": t["fecha_inicio"]}))
+
+    idx = next((i for i, t in enumerate(hermanas) if t["row"] == row_id), None)
+    if idx is None:
+        wb.close()
+        raise ValueError("No se encontró la tarea entre sus hermanas")
+
+    target_idx = idx - 1 if direction == "up" else idx + 1
+    if target_idx < 0 or target_idx >= len(hermanas):
+        wb.close()
+        raise ValueError("Ya está en el límite del proyecto")
+
+    hermanas[idx], hermanas[target_idx] = hermanas[target_idx], hermanas[idx]
+
+    for i, t in enumerate(hermanas):
+        ws.cell(row=t["row"], column=orden_col).value = i
+
+    wb.save(EXCEL_PATH)
+    wb.close()
+
+
 @app.route("/api/tareas/<int:row_id>", methods=["DELETE"])
 def delete_tarea(row_id):
     try:
@@ -1810,6 +1887,23 @@ def delete_proyecto_route(row_id):
 def get_roadmap():
     try:
         return jsonify({"ok": True, "data": read_roadmap()})
+    except PermissionError:
+        return jsonify({"ok": False, "error": "El archivo Excel está abierto en otro programa. Ciérralo e intenta de nuevo."}), 423
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/roadmap/task/<int:row_id>/move", methods=["POST"])
+def move_roadmap_task_route(row_id):
+    payload = request.get_json(force=True)
+    direction = payload.get("direction")
+    if direction not in ("up", "down"):
+        return jsonify({"ok": False, "error": "Dirección inválida"}), 400
+    try:
+        move_roadmap_task(row_id, direction)
+        return jsonify({"ok": True})
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
     except PermissionError:
         return jsonify({"ok": False, "error": "El archivo Excel está abierto en otro programa. Ciérralo e intenta de nuevo."}), 423
     except Exception as e:

@@ -626,13 +626,23 @@ function renderRoadmap() {
       }
 
       if (tieneHijos && !contraido) {
-        fila.hijos.forEach((hijo) => {
-          html += `<div class="cal-row-label cal-row-label-hijo"><span class="cal-row-tree">└</span><span>${hijo.label}</span>${noteBubbleIcon(hijo.comentario, { title: "Ver comentario", onclick: `viewTareaNotaRoadmap(${hijo.id.split("-")[1]})` })}</div>`;
+        fila.hijos.forEach((hijo, hijoIdx) => {
+          const isFirst = hijoIdx === 0;
+          const isLast = hijoIdx === fila.hijos.length - 1;
+          const hijoRowId = hijo.id.split("-")[1];
+          html += `<div class="cal-row-label cal-row-label-hijo">
+            <span class="cal-row-tree">└</span>
+            <span class="cal-row-move">
+              <button class="cal-row-move-btn" title="Mover arriba" ${isFirst ? "disabled" : ""} onclick="event.stopPropagation(); moveRoadmapTask(${hijoRowId}, 'up')">▲</button>
+              <button class="cal-row-move-btn" title="Mover abajo" ${isLast ? "disabled" : ""} onclick="event.stopPropagation(); moveRoadmapTask(${hijoRowId}, 'down')">▼</button>
+            </span>
+            <span>${hijo.label}</span>${noteBubbleIcon(hijo.comentario, { title: "Ver comentario", onclick: `viewTareaNotaRoadmap(${hijoRowId})` })}
+          </div>`;
           for (let i = 0; i < 12; i++) {
             html += `<div class="cal-cell cal-cell-hijo ${i % 3 === 0 ? "q-start" : ""}">`;
             if (i === hijo.colInicio) {
               const pos = barPosition(hijo.colInicio, hijo.colFin, hijo.startFrac, hijo.endFrac);
-              html += `<div class="cal-bar cal-bar-hijo" style="background:${hijo.colorHex}; left:${pos.left}; width:${pos.width}" title="${hijo.label}" onclick="openEdit(${hijo.id.split("-")[1]})">${hijo.label}</div>`;
+              html += `<div class="cal-bar cal-bar-hijo" style="background:${hijo.colorHex}; left:${pos.left}; width:${pos.width}" title="${hijo.label}" onclick="openEdit(${hijoRowId})">${hijo.label}</div>`;
             }
             html += `</div>`;
           }
@@ -658,6 +668,19 @@ function toggleRoadmapRow(id) {
   if (state.planCollapsed.has(id)) state.planCollapsed.delete(id);
   else state.planCollapsed.add(id);
   renderRoadmap();
+}
+
+async function moveRoadmapTask(rowId, direction) {
+  try {
+    await api(`/api/roadmap/task/${rowId}/move`, {
+      method: "POST",
+      body: JSON.stringify({ direction }),
+    });
+    state.roadmapData = null;
+    renderRoadmap();
+  } catch (e) {
+    showToast(e.message, true);
+  }
 }
 
 /* ---------- Equipo y Proyectos: gestión de Proyectos (con fechas) ---------- */

@@ -423,6 +423,25 @@ main { padding: 0 28px 40px; }
 .cal-row-toggle:hover { color: var(--slate); }
 .cal-row-label-hijo { padding-left: 26px; color: var(--muted); font-size: 12px; background: #FAFBFC; }
 .cal-row-tree { color: var(--line); font-family: monospace; flex-shrink: 0; }
+.cal-row-move {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  flex-shrink: 0;
+}
+.cal-row-move-btn {
+  border: none;
+  background: transparent;
+  color: var(--gray, #9CA3AF);
+  width: 14px; height: 11px;
+  border-radius: 3px;
+  font-size: 8px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.cal-row-move-btn:hover:not(:disabled) { background: rgba(15,157,140,0.12); color: var(--teal-dark, #0B7A6D); }
+.cal-row-move-btn:disabled { opacity: 0.25; cursor: default; }
 .cal-cell-hijo {
   background-color: #FAFBFC;
   background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(25% - 1px), #E7E9ED calc(25% - 1px), #E7E9ED 25%);
