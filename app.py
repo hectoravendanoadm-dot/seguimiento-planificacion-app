@@ -3,6 +3,7 @@ Seguimiento y Planificación - App local
 Lee y escribe directamente sobre el archivo Excel (hoja "Tareas").
 """
 import os
+import sys
 import re
 import csv
 import io
@@ -17,7 +18,16 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font
 from openpyxl.utils import get_column_letter
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, "frozen", False):
+    # Empaquetado con PyInstaller: los datos (Excel, backups, documentos) deben
+    # vivir junto al .exe real, NO en la carpeta temporal donde PyInstaller
+    # descomprime los recursos en cada arranque (esa se borra/regenera siempre).
+    BASE_DIR = os.path.dirname(sys.executable)
+    BUNDLE_DIR = sys._MEIPASS
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    BUNDLE_DIR = BASE_DIR
+
 DATA_DIR = os.path.join(BASE_DIR, "data")
 EXCEL_PATH = os.path.join(DATA_DIR, "Seguimiento_y_planificacion.xlsx")
 BACKUP_PATH = os.path.join(DATA_DIR, "Seguimiento_y_planificacion.backup.xlsx")
@@ -198,7 +208,11 @@ def ensure_schema():
     wb.close()
 
 
-app = Flask(__name__)
+app = Flask(
+    __name__,
+    template_folder=os.path.join(BUNDLE_DIR, "templates"),
+    static_folder=os.path.join(BUNDLE_DIR, "static"),
+)
 
 
 # ---------------------------------------------------------------------------

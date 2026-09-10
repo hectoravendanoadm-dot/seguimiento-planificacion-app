@@ -182,11 +182,47 @@ comparte al enviar el proyecto.
 momento crees que quedó expuesta (por ejemplo, pegada en un chat), regénerala desde
 **Project Settings → API → Generate new service_role key**.
 
+## 8. Convertirla en un programa de escritorio (.exe, sin consola)
+
+Si prefieres no depender de `iniciar.bat` ni de una pestaña de navegador, puedes compilar
+la app en un único archivo `.exe` que se abre en su propia ventana — se ve y se siente como
+cualquier otro programa instalado en Windows.
+
+**Instalación (una sola vez):**
+
+1. Asegúrate de haber corrido `iniciar.bat` al menos una vez antes (crea el `venv`).
+2. Haz doble clic en `build_exe.bat`. Instala PyInstaller y compila — tarda 1-3 minutos.
+3. Cuando termine, el programa queda en `dist\SeguimientoPlanificacion.exe`.
+4. Crea una carpeta `data` justo al lado de ese `.exe`, y copia ahí tu
+   `Seguimiento_y_planificacion.xlsx` (igual que en la versión normal).
+5. Doble clic en `SeguimientoPlanificacion.exe` — abre una ventana propia, sin consola negra
+   y sin navegador. Puedes crearle un acceso directo en el Escritorio (clic derecho →
+   Crear acceso directo) o anclarlo a la barra de tareas.
+
+**Cómo funciona por dentro:** sigue siendo el mismo backend Flask de siempre (`app.py`)
+corriendo en segundo plano — solo que en vez de abrir Chrome/Edge, se muestra dentro de una
+ventana nativa de Windows (vía `pywebview`), y PyInstaller empaqueta Python + todas las
+dependencias dentro del `.exe`, así que **no necesitas tener Python instalado** para
+correrlo (sí lo necesitas para compilarlo).
+
+**Notas importantes:**
+- Tus datos (`data/`) siempre quedan junto al `.exe` real, no se pierden entre ejecuciones.
+- Si cambias el código (`app.py`, `templates/`, `static/`), tienes que volver a correr
+  `build_exe.bat` para que el `.exe` refleje los cambios — no se actualiza solo.
+- La ventana usa **WebView2** (el motor de Microsoft Edge moderno). Windows 11 ya lo trae
+  instalado; en Windows 10 casi siempre también, pero si la ventana aparece en blanco,
+  descarga el "Microsoft Edge WebView2 Runtime" (gratis, instalador chico) desde la página
+  oficial de Microsoft.
+- El `.exe` no se sube a GitHub (`dist/`, `build/` y `*.spec` están en `.gitignore`) — cada
+  quien lo compila localmente con `build_exe.bat`.
+
 ## Estructura del proyecto
 
 ```
 seguimiento-app/
 ├── app.py                # Backend Flask (lee/escribe el Excel, sube a Supabase)
+├── desktop_app.py         # Punto de entrada para la version de escritorio (.exe)
+├── build_exe.bat          # Compila desktop_app.py a un .exe con PyInstaller
 ├── requirements.txt
 ├── .env                  # Credenciales de Supabase (no se versiona)
 ├── .gitignore

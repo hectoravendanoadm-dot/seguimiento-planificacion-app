@@ -4,6 +4,9 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Variables de entorno / claves — NUNCA se suben (contienen API keys)
+.env
+
 # Datos reales del Excel — nunca se suben (información de trabajo/personal)
 # Deja tu propio archivo en data/ localmente; no se versiona.
 data/*.xlsx
@@ -15,6 +18,10 @@ data/*documentos/3-substitution.pdf
 data/*documentos/4-Base_Conocimiento_Subsistemas_Picking_Jumbo.md
 data/*documentos/5-Minuta_Reunion_Prorrateo_Copago_Puntos.pdf
 
+# Compilacion a .exe (PyInstaller) — se regenera con build_exe.bat, no se versiona
+build/
+dist/
+*.spec
 
 # Sistema operativo
 .DS_Store
