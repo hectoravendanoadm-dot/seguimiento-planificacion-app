@@ -32,12 +32,7 @@ echo.
 echo Compilando (esto puede tardar 1-3 minutos)...
 echo.
 
-pyinstaller --onefile --windowed ^
-  --name "SeguimientoPlanificacion" ^
-  --icon "icon.ico" ^
-  --add-data "templates;templates" ^
-  --add-data "static;static" ^
-  desktop_app.py
+pyinstaller --noconfirm --onedir --windowed --name "SeguimientoPlanificacion" --icon "icon.ico" --add-data "templates;templates" --add-data "static;static" desktop_app.py
 
 if errorlevel 1 (
     echo.
@@ -52,10 +47,12 @@ if errorlevel 1 (
 echo.
 echo ============================================
 echo   Listo! El programa quedo en:
-echo   dist\SeguimientoPlanificacion.exe
+echo   dist\SeguimientoPlanificacion\SeguimientoPlanificacion.exe
 echo ============================================
 echo.
-echo Siguiente paso: crea la carpeta "data" junto a ese .exe
-echo y copia ahi tu Seguimiento_y_planificacion.xlsx
+echo Siguiente paso: copia tu carpeta "data" completa
+echo (Excel + documentos + diagramas) dentro de:
+echo   dist\SeguimientoPlanificacion\
+echo justo al lado del .exe.
 echo.
 pause

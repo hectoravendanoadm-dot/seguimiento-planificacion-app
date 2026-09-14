@@ -192,7 +192,8 @@ cualquier otro programa instalado en Windows.
 
 1. Asegúrate de haber corrido `iniciar.bat` al menos una vez antes (crea el `venv`).
 2. Haz doble clic en `build_exe.bat`. Instala PyInstaller y compila — tarda 1-3 minutos.
-3. Cuando termine, el programa queda en `dist\SeguimientoPlanificacion.exe`.
+3. Cuando termine, el programa queda en `dist\SeguimientoPlanificacion\SeguimientoPlanificacion.exe`
+   (una carpeta con el `.exe` adentro, no un archivo suelto — así arranca más rápido).
 4. Crea una carpeta `data` justo al lado de ese `.exe`, y copia ahí tu
    `Seguimiento_y_planificacion.xlsx` (igual que en la versión normal).
 5. Doble clic en `SeguimientoPlanificacion.exe` — abre una ventana propia, sin consola negra
