@@ -1429,7 +1429,11 @@ function renderLinkOrText(value) {
   if (!value) return "";
   const isUrl = /^https?:\/\//i.test(value);
   if (!isUrl) return value;
-  return `<a href="${value}" target="_blank" rel="noopener" class="pasos-link" onclick="event.stopPropagation()">${value}</a>`;
+  // Link corto: si el link contiene un código de ticket (ej. OTC-1234) se
+  // muestra solo ese código; el link completo queda en el tooltip.
+  const key = String(value).toUpperCase().match(/\b([A-Z][A-Z0-9]+-\d+)\b/);
+  const texto = key ? key[1] : "Abrir link";
+  return `<a href="${value}" target="_blank" rel="noopener" class="pasos-link" title="${value}" onclick="event.stopPropagation()">${texto} ↗</a>`;
 }
 
 function renderPasosProd() {
@@ -1529,6 +1533,155 @@ async function deletePasoProd(rowId, tema) {
     renderPasosProd();
   } catch (e) {
     showToast(e.message, true);
+  }
+}
+
+/* ---------- Jira: probar conexión y sincronizar OTC ---------- */
+
+function escHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+const jiraSync = { items: [], seleccion: new Set(), filtro: "", mostrarRegistrados: false };
+
+async function probarConexionJira() {
+  const btn = el("btn-jira-probar");
+  btn.disabled = true;
+  try {
+    const r = await api("/api/jira/probar");
+    const lineas = [
+      `✅ Conexión correcta con ${r.baseUrl}`,
+      `Usuario: ${r.usuario}`,
+      `Proyecto: ${r.projectKey}`,
+      "",
+      "Campos personalizados:",
+      ...r.campos.map((c) =>
+        c.id
+          ? `  ✅ ${c.uso}: "${c.nombre}" (${c.id})`
+          : `  ⚠️ ${c.uso}: no se encontró "${c.buscado}". Revisa el nombre en el .env.`
+      ),
+    ];
+    openTextViewerModal("Conexión con Jira", lineas.join("\n"));
+  } catch (e) {
+    openTextViewerModal("Conexión con Jira", `❌ ${e.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function openJiraSyncModal() {
+  const btn = el("btn-jira-sync");
+  btn.disabled = true;
+  showToast("Consultando Jira…");
+  try {
+    const r = await api("/api/jira/mis-otc");
+    jiraSync.items = r.items;
+    jiraSync.seleccion = new Set();
+    jiraSync.filtro = "";
+    jiraSync.mostrarRegistrados = false;
+    el("jira-modal-filtro").value = "";
+    el("jira-modal-mostrar-registrados").checked = false;
+    const nuevos = r.items.filter((i) => !i.registrado).length;
+    el("jira-modal-info").textContent =
+      `Encontré ${r.items.length} OTC reportados por ti en Jira; ${nuevos} todavía no están registrados.`;
+    const avisos = el("jira-modal-avisos");
+    avisos.innerHTML = (r.avisos || []).map((a) => `<div>⚠️ ${escHtml(a)}</div>`).join("");
+    avisos.style.display = r.avisos && r.avisos.length ? "block" : "none";
+    renderJiraSyncList();
+    el("jira-modal-overlay").classList.add("active");
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function closeJiraSyncModal() {
+  el("jira-modal-overlay").classList.remove("active");
+}
+
+function jiraItemsVisibles() {
+  const f = jiraSync.filtro.trim().toLowerCase();
+  return jiraSync.items.filter((i) => {
+    if (i.registrado && !jiraSync.mostrarRegistrados) return false;
+    if (!f) return true;
+    return [i.key, i.Tema, i.Producto, i.summary].some((v) => String(v || "").toLowerCase().includes(f));
+  });
+}
+
+function renderJiraSyncList() {
+  const visibles = jiraItemsVisibles();
+  const lista = el("jira-modal-lista");
+  if (!visibles.length) {
+    lista.innerHTML = `<p class="empty-state">${jiraSync.items.length ? "No hay OTC que coincidan." : "No se encontraron OTC reportados por ti."}</p>`;
+  } else {
+    lista.innerHTML = visibles
+      .map(
+        (i) => `
+      <label class="jira-item${i.registrado ? " registrado" : ""}">
+        <input type="checkbox" data-key="${escHtml(i.key)}" ${i.registrado ? "disabled" : ""} ${jiraSync.seleccion.has(i.key) ? "checked" : ""}>
+        <div class="jira-item-body">
+          <div class="jira-item-top">
+            <span class="jira-item-key">${escHtml(i.key)}</span>
+            <span class="jira-item-fecha">${escHtml(i.Fecha)}</span>
+            ${i.estado ? `<span class="jira-item-estado">${escHtml(i.estado)}</span>` : ""}
+            ${i.registrado ? `<span class="jira-item-tag">Ya registrado</span>` : ""}
+          </div>
+          <div class="jira-item-tema">${escHtml(i.Tema)}</div>
+          <div class="jira-item-meta">${i.Producto ? escHtml(i.Producto) : "<em>Sin producto</em>"}${i["Ticket Jira"] ? " · Ticket Jira ✓" : " · <em>Sin Ticket Jira</em>"}</div>
+        </div>
+      </label>`
+      )
+      .join("");
+    lista.querySelectorAll("input[type=checkbox]").forEach((cb) => {
+      cb.addEventListener("change", () => {
+        if (cb.checked) jiraSync.seleccion.add(cb.dataset.key);
+        else jiraSync.seleccion.delete(cb.dataset.key);
+        actualizarContadorJira();
+      });
+    });
+  }
+  actualizarContadorJira();
+}
+
+function actualizarContadorJira() {
+  const seleccionables = jiraItemsVisibles().filter((i) => !i.registrado);
+  const marcarTodos = el("jira-modal-marcar-todos");
+  marcarTodos.checked = seleccionables.length > 0 && seleccionables.every((i) => jiraSync.seleccion.has(i.key));
+  marcarTodos.disabled = seleccionables.length === 0;
+  const n = jiraSync.seleccion.size;
+  el("jira-modal-contador").textContent = n ? `${n} seleccionado${n === 1 ? "" : "s"}` : "Ninguno seleccionado";
+  const btn = el("jira-modal-confirmar");
+  btn.disabled = n === 0;
+  btn.textContent = n ? `Agregar ${n} paso${n === 1 ? "" : "s"} a prod` : "Agregar seleccionados";
+}
+
+function toggleMarcarTodosJira(marcar) {
+  jiraItemsVisibles()
+    .filter((i) => !i.registrado)
+    .forEach((i) => (marcar ? jiraSync.seleccion.add(i.key) : jiraSync.seleccion.delete(i.key)));
+  renderJiraSyncList();
+}
+
+async function confirmarJiraSync() {
+  const items = jiraSync.items
+    .filter((i) => jiraSync.seleccion.has(i.key) && !i.registrado)
+    .map((i) => ({ Fecha: i.Fecha, Tema: i.Tema, Producto: i.Producto, OTC: i.OTC, "Ticket Jira": i["Ticket Jira"] }));
+  if (!items.length) return;
+  const btn = el("jira-modal-confirmar");
+  btn.disabled = true;
+  try {
+    const r = await api("/api/pasos-prod/lote", { method: "POST", body: JSON.stringify({ items }) });
+    closeJiraSyncModal();
+    showToast(
+      `Se agregaron ${r.agregados} paso${r.agregados === 1 ? "" : "s"} a producción` +
+        (r.omitidos ? ` (${r.omitidos} omitido${r.omitidos === 1 ? "" : "s"} por estar ya registrado${r.omitidos === 1 ? "" : "s"})` : "")
+    );
+    await loadAll();
+    renderPasosProd();
+  } catch (e) {
+    showToast(e.message, true);
+    btn.disabled = false;
   }
 }
 
@@ -2160,6 +2313,18 @@ function wireEvents() {
     renderRoadmap();
   });
   el("btn-pasos-new").addEventListener("click", addPasoProd);
+  el("btn-jira-probar").addEventListener("click", probarConexionJira);
+  el("btn-jira-sync").addEventListener("click", openJiraSyncModal);
+  el("jira-modal-confirmar").addEventListener("click", confirmarJiraSync);
+  el("jira-modal-marcar-todos").addEventListener("change", (e) => toggleMarcarTodosJira(e.target.checked));
+  el("jira-modal-mostrar-registrados").addEventListener("change", (e) => {
+    jiraSync.mostrarRegistrados = e.target.checked;
+    renderJiraSyncList();
+  });
+  el("jira-modal-filtro").addEventListener("input", (e) => {
+    jiraSync.filtro = e.target.value;
+    renderJiraSyncList();
+  });
   el("btn-incidencias-new").addEventListener("click", addIncidencia);
   el("btn-incidencias-import").addEventListener("click", () => el("incidencias-csv-input").click());
   el("incidencias-csv-input").addEventListener("change", (e) => {
@@ -2234,6 +2399,7 @@ function wireEvents() {
       closeConfirmModal(false);
       closeCellModal(null);
       closeViewModal();
+      closeJiraSyncModal();
     }
   });
   el("view-modal-overlay").addEventListener("click", (e) => {

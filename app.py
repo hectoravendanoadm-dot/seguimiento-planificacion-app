@@ -619,6 +619,71 @@ def delete_paso_prod(row_id):
     wb.save(EXCEL_PATH)
     wb.close()
 
+OTC_KEY_RE = re.compile(r"\b([A-Z][A-Z0-9]+-\d+)\b")
+
+
+def _extraer_key_ticket(valor):
+    """Saca el código del ticket (ej. OTC-1234) de un link o texto. Se usa
+    para detectar duplicados sin depender de que el link sea idéntico."""
+    if not valor:
+        return None
+    m = OTC_KEY_RE.search(str(valor).upper())
+    return m.group(1) if m else None
+
+
+def keys_otc_registrados():
+    """Conjunto de códigos OTC que ya existen en la hoja Pasos a Prod."""
+    return {k for k in (_extraer_key_ticket(p.get("OTC")) for p in read_pasos_prod()) if k}
+
+
+def create_pasos_prod_lote(items):
+    """Agrega varios pasos a producción abriendo y guardando el Excel una sola
+    vez: o se guardan todos, o (si algo falla antes de guardar) ninguno.
+    Omite los OTC que ya estaban registrados o vienen repetidos en el lote."""
+    if not isinstance(items, list) or not items:
+        raise ValueError("No se recibió ningún paso a producción para agregar.")
+    backup_file()
+    wb = load_workbook(EXCEL_PATH)
+    ws = wb[PASOS_PROD_SHEET]
+    otc_col = PASOS_PROD_COLUMNS.index("OTC") + 1
+    existentes = set()
+    for row_idx in range(2, ws.max_row + 1):
+        k = _extraer_key_ticket(ws.cell(row=row_idx, column=otc_col).value)
+        if k:
+            existentes.add(k)
+
+    # Validar todo primero, para no dejar el Excel a medio escribir.
+    filas, omitidos = [], 0
+    for data in items:
+        if not str(data.get("Tema") or "").strip():
+            wb.close()
+            raise ValueError("Todos los pasos a producción deben tener Tema.")
+        k = _extraer_key_ticket(data.get("OTC"))
+        if k and k in existentes:
+            omitidos += 1
+            continue
+        if k:
+            existentes.add(k)
+        fila = []
+        for key in PASOS_PROD_COLUMNS:
+            value = data.get(key)
+            value = _parse_strict_date(key, value) if key == "Fecha" else (value or None)
+            fila.append(value)
+        filas.append(fila)
+
+    # Orden cronológico, para que queden legibles al final de la hoja.
+    fecha_idx = PASOS_PROD_COLUMNS.index("Fecha")
+    filas.sort(key=lambda f: f[fecha_idx] or datetime.max)
+
+    row_idx = next_row_index(ws)
+    for fila in filas:
+        for col_idx, value in enumerate(fila, start=1):
+            ws.cell(row=row_idx, column=col_idx).value = value
+        row_idx += 1
+    wb.save(EXCEL_PATH)
+    wb.close()
+    return len(filas), omitidos
+
 
 def _incidencia_from_json(key, value):
     if value in (None, ""):
@@ -2335,6 +2400,250 @@ def limpiar_respaldos_antiguos():
         return jsonify({"ok": True, "deleted": len(a_borrar)})
     except RuntimeError as e:
         return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Integración con Jira Cloud (solo lectura): trae los OTC que reportaste para
+# cargarlos como pasos a producción. La configuración vive en el .env, igual
+# que Supabase, para que el token nunca quede en el Excel ni en GitHub.
+# ---------------------------------------------------------------------------
+
+JIRA_BASE_URL = os.environ.get("JIRA_BASE_URL", "").strip().rstrip("/")
+JIRA_EMAIL = os.environ.get("JIRA_EMAIL", "").strip()
+JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN", "").strip()
+JIRA_PROJECT_KEY = os.environ.get("JIRA_PROJECT_KEY", "OTC").strip() or "OTC"
+JIRA_CAMPO_TEMA = os.environ.get("JIRA_CAMPO_TEMA", "Nombre Solicitud").strip()
+JIRA_CAMPO_URL = os.environ.get("JIRA_CAMPO_URL", "URL JIRA").strip()
+JIRA_MAX_TICKETS = 300
+JIRA_FIELDS_CACHE_SECONDS = 600
+
+_jira_fields_cache = {"at": 0.0, "fields": None}
+
+
+def _jira_configurado():
+    return bool(JIRA_BASE_URL and JIRA_EMAIL and JIRA_API_TOKEN)
+
+
+def _jira_request(method, path, body=None):
+    if not _jira_configurado():
+        raise RuntimeError(
+            "Falta configurar JIRA_BASE_URL, JIRA_EMAIL y JIRA_API_TOKEN en el archivo .env del proyecto."
+        )
+    import base64
+    url = f"{JIRA_BASE_URL}{path}"
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    cred = base64.b64encode(f"{JIRA_EMAIL}:{JIRA_API_TOKEN}".encode("utf-8")).decode("ascii")
+    req.add_header("Authorization", f"Basic {cred}")
+    req.add_header("Accept", "application/json")
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode("utf-8") or "null")
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise RuntimeError(
+                "Jira rechazó las credenciales (error %s). Revisa JIRA_EMAIL y JIRA_API_TOKEN en el .env." % e.code
+            )
+        detalle = ""
+        try:
+            info = json.loads(e.read().decode("utf-8"))
+            detalle = "; ".join(info.get("errorMessages") or []) or json.dumps(info.get("errors") or "")
+        except Exception:
+            pass
+        raise RuntimeError(f"Jira respondió con error {e.code}. {detalle}".strip())
+    except urllib.error.URLError as e:
+        motivo = str(getattr(e, "reason", e))
+        if "CERTIFICATE" in motivo.upper():
+            raise RuntimeError(
+                "No se pudo validar el certificado de Jira (posible bloqueo de la red corporativa). Detalle: " + motivo
+            )
+        raise RuntimeError(f"No se pudo conectar con Jira ({JIRA_BASE_URL}). Detalle: {motivo}")
+
+
+def _normalizar_nombre(texto):
+    import unicodedata
+    s = unicodedata.normalize("NFD", str(texto or ""))
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return " ".join(s.lower().split())
+
+
+def _jira_campos():
+    import time
+    ahora = time.time()
+    if _jira_fields_cache["fields"] is None or ahora - _jira_fields_cache["at"] > JIRA_FIELDS_CACHE_SECONDS:
+        _jira_fields_cache["fields"] = _jira_request("GET", "/rest/api/3/field") or []
+        _jira_fields_cache["at"] = ahora
+    return _jira_fields_cache["fields"]
+
+
+def _jira_resolver_campo(nombre_o_id):
+    """Devuelve (id, nombre) del campo, buscándolo por nombre sin distinguir
+    mayúsculas ni tildes. También acepta directamente un id customfield_XXXXX."""
+    if not nombre_o_id:
+        return None
+    buscado = _normalizar_nombre(nombre_o_id)
+    for f in _jira_campos():
+        if str(f.get("id", "")).lower() == buscado or _normalizar_nombre(f.get("name")) == buscado:
+            return f.get("id"), f.get("name")
+    return None
+
+
+def _adf_texto(nodo):
+    """Texto plano de un valor de Jira (texto simple o texto enriquecido ADF)."""
+    if nodo is None:
+        return ""
+    if isinstance(nodo, str):
+        return nodo
+    if isinstance(nodo, list):
+        return " ".join(t for t in (_adf_texto(n) for n in nodo) if t)
+    if isinstance(nodo, dict):
+        if nodo.get("type") == "text":
+            return nodo.get("text", "")
+        if "content" in nodo:
+            return " ".join(t for t in (_adf_texto(n) for n in nodo["content"]) if t)
+        for k in ("value", "name"):
+            if isinstance(nodo.get(k), str):
+                return nodo[k]
+    return ""
+
+
+URL_RE = re.compile(r"https?://[^\s\"'<>\]\)]+", re.IGNORECASE)
+
+
+def _adf_primer_url(nodo):
+    """Primer link de un valor de Jira: busca marcas de link e inlineCards del
+    ADF y, si no hay, una URL escrita en el texto."""
+    pendientes = [nodo]
+    while pendientes:
+        n = pendientes.pop(0)
+        if isinstance(n, list):
+            pendientes.extend(n)
+        elif isinstance(n, dict):
+            attrs = n.get("attrs") or {}
+            if n.get("type") in ("inlineCard", "blockCard", "embedCard") and attrs.get("url"):
+                return attrs["url"]
+            for mark in n.get("marks") or []:
+                href = (mark.get("attrs") or {}).get("href")
+                if mark.get("type") == "link" and href:
+                    return href
+            pendientes.extend(n.get("content") or [])
+    m = URL_RE.search(_adf_texto(nodo))
+    return m.group(0) if m else ""
+
+
+def _jira_ticket_a_paso(issue, id_tema, id_url):
+    f = issue.get("fields") or {}
+    key = issue.get("key", "")
+    tema = _adf_texto(f.get(id_tema)).strip() if id_tema else ""
+    if not tema:
+        tema = (f.get("summary") or "").strip() or key
+    ticket_jira = _adf_primer_url(f.get(id_url)) if id_url else ""
+    if not ticket_jira and id_url:
+        ticket_jira = _adf_texto(f.get(id_url)).strip()
+    componentes = ", ".join(c.get("name", "") for c in (f.get("components") or []) if c.get("name"))
+    return {
+        "key": key,
+        "Fecha": (f.get("created") or "")[:10],
+        "Tema": tema,
+        "Producto": componentes,
+        "OTC": f"{JIRA_BASE_URL}/browse/{key}",
+        "Ticket Jira": ticket_jira,
+        "summary": f.get("summary") or "",
+        "estado": ((f.get("status") or {}).get("name")) or "",
+    }
+
+
+@app.route("/api/jira/status", methods=["GET"])
+def jira_status():
+    return jsonify({
+        "ok": True,
+        "configured": _jira_configurado(),
+        "baseUrl": JIRA_BASE_URL,
+        "email": JIRA_EMAIL,
+        "projectKey": JIRA_PROJECT_KEY,
+    })
+
+
+@app.route("/api/jira/probar", methods=["GET"])
+def jira_probar():
+    try:
+        yo = _jira_request("GET", "/rest/api/3/myself") or {}
+        _jira_fields_cache["fields"] = None  # forzar lectura fresca de los campos
+        tema = _jira_resolver_campo(JIRA_CAMPO_TEMA)
+        url = _jira_resolver_campo(JIRA_CAMPO_URL)
+        return jsonify({
+            "ok": True,
+            "usuario": yo.get("displayName") or yo.get("emailAddress") or JIRA_EMAIL,
+            "baseUrl": JIRA_BASE_URL,
+            "projectKey": JIRA_PROJECT_KEY,
+            "campos": [
+                {"buscado": JIRA_CAMPO_TEMA, "uso": "Tema", "id": tema[0] if tema else None, "nombre": tema[1] if tema else None},
+                {"buscado": JIRA_CAMPO_URL, "uso": "Ticket Jira", "id": url[0] if url else None, "nombre": url[1] if url else None},
+            ],
+        })
+    except RuntimeError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/jira/mis-otc", methods=["GET"])
+def jira_mis_otc():
+    try:
+        avisos = []
+        tema = _jira_resolver_campo(JIRA_CAMPO_TEMA)
+        url = _jira_resolver_campo(JIRA_CAMPO_URL)
+        if not tema:
+            avisos.append(f'No se encontró el campo "{JIRA_CAMPO_TEMA}" en Jira: el Tema se tomará del resumen del ticket.')
+        if not url:
+            avisos.append(f'No se encontró el campo "{JIRA_CAMPO_URL}" en Jira: el Ticket Jira quedará vacío.')
+        id_tema = tema[0] if tema else None
+        id_url = url[0] if url else None
+
+        jql = f'project = "{JIRA_PROJECT_KEY}" AND reporter = currentUser() ORDER BY created DESC'
+        campos = ["summary", "components", "created", "status"] + [c for c in (id_tema, id_url) if c]
+        issues, token = [], None
+        while len(issues) < JIRA_MAX_TICKETS:
+            body = {"jql": jql, "fields": campos, "maxResults": min(100, JIRA_MAX_TICKETS - len(issues))}
+            if token:
+                body["nextPageToken"] = token
+            res = _jira_request("POST", "/rest/api/3/search/jql", body) or {}
+            issues.extend(res.get("issues") or [])
+            token = res.get("nextPageToken")
+            if not token or res.get("isLast") or not res.get("issues"):
+                break
+        if token and len(issues) >= JIRA_MAX_TICKETS:
+            avisos.append(f"Se muestran solo los {JIRA_MAX_TICKETS} tickets más recientes.")
+
+        registrados = keys_otc_registrados()
+        items = []
+        for issue in issues:
+            paso = _jira_ticket_a_paso(issue, id_tema, id_url)
+            paso["registrado"] = paso["key"].upper() in registrados
+            items.append(paso)
+        return jsonify({"ok": True, "items": items, "avisos": avisos, "jql": jql})
+    except FileNotFoundError:
+        return jsonify({"ok": False, "error": "No se encontró el archivo Excel en data/"}), 404
+    except RuntimeError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/pasos-prod/lote", methods=["POST"])
+def create_pasos_prod_lote_route():
+    payload = request.get_json(force=True) or {}
+    try:
+        agregados, omitidos = create_pasos_prod_lote(payload.get("items"))
+        return jsonify({"ok": True, "agregados": agregados, "omitidos": omitidos})
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except PermissionError:
+        return jsonify({"ok": False, "error": "El archivo Excel está abierto en otro programa. Ciérralo e intenta de nuevo."}), 423
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 

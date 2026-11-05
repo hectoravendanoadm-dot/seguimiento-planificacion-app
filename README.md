@@ -182,6 +182,46 @@ comparte al enviar el proyecto.
 momento crees que quedó expuesta (por ejemplo, pegada en un chat), regénerala desde
 **Project Settings → API → Generate new service_role key**.
 
+## 7b. Conexión con Jira (cargar pasos a producción desde tus OTC)
+
+En la pestaña **Pasos a Prod**, el botón **"🔄 Sincronizar con Jira"** consulta los
+tickets del proyecto OTC que tú reportaste y abre una lista para elegir cuáles cargar.
+No crea nada hasta que confirmas. Los OTC que ya están registrados aparecen
+deshabilitados (se detectan por el código, ej. `OTC-1234`, no por el link exacto).
+**"🔌 Probar conexión Jira"** verifica las credenciales y que existan los campos.
+
+**Cómo se llenan los campos:**
+
+| Paso a prod | Desde Jira |
+|---|---|
+| Fecha | Fecha de creación del ticket |
+| Tema | Campo "Nombre Solicitud" (si está vacío, el resumen del ticket) |
+| Producto | Componentes del ticket, separados por coma |
+| OTC | Link al ticket: `https://<tu-sitio>/browse/OTC-1234` |
+| Ticket Jira | El link que trae el campo "URL JIRA" (si no tiene, queda vacío) |
+
+**Configuración (una sola vez):**
+
+1. Crea un token de API de Jira en
+   [id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens).
+2. Agrega estas líneas al archivo `.env` (el mismo de Supabase):
+
+   ```
+   JIRA_BASE_URL=https://TU-SITIO.atlassian.net
+   JIRA_EMAIL=tu.correo@cencosud.cl
+   JIRA_API_TOKEN=tu-token
+   JIRA_PROJECT_KEY=OTC
+   JIRA_CAMPO_TEMA=Nombre Solicitud
+   JIRA_CAMPO_URL=URL JIRA
+   ```
+
+3. Reinicia la app (el `.env` se lee al arrancar) y presiona "Probar conexión Jira".
+
+Los nombres de campo no distinguen mayúsculas ni tildes; también puedes poner el id
+técnico (ej. `customfield_10050`). En la versión `.exe`, el `.env` debe estar junto al
+`.exe`. El token da acceso a Jira con tu usuario: si quedó expuesto, revócalo en la
+misma página donde lo creaste.
+
 ## 8. Convertirla en un programa de escritorio (.exe, sin consola)
 
 Si prefieres no depender de `iniciar.bat` ni de una pestaña de navegador, puedes compilar
@@ -225,7 +265,7 @@ seguimiento-app/
 ├── desktop_app.py         # Punto de entrada para la version de escritorio (.exe)
 ├── build_exe.bat          # Compila desktop_app.py a un .exe con PyInstaller
 ├── requirements.txt
-├── .env                  # Credenciales de Supabase (no se versiona)
+├── .env                  # Credenciales de Supabase y Jira (no se versiona)
 ├── .gitignore
 ├── data/
 │   ├── Seguimiento_y_planificacion.xlsx   # Tu archivo de trabajo

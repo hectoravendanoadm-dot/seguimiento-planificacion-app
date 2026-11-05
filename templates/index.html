@@ -136,6 +136,8 @@
     <div class="plan-toolbar">
       <p class="plan-hint">Registra aquí cada paso a producción de los desarrollos en curso, con su ticket OTC y de Jira.</p>
       <div class="plan-toolbar-actions">
+        <button id="btn-jira-probar" class="btn btn-ghost-dark" title="Verifica las credenciales de Jira del archivo .env y que existan los campos configurados">🔌 Probar conexión Jira</button>
+        <button id="btn-jira-sync" class="btn btn-ghost-dark">🔄 Sincronizar con Jira</button>
         <button id="btn-pasos-new" class="btn btn-ghost-dark">+ Nuevo paso a prod</button>
       </div>
     </div>
@@ -374,6 +376,33 @@
       <div class="modal-footer-right" style="width:100%; justify-content:flex-end;">
         <button class="btn btn-ghost" onclick="closeConfirmModal(false)">Cancelar</button>
         <button id="confirm-modal-ok-btn" class="btn btn-danger-solid">Eliminar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Jira sync modal: elegir qué OTC reportados en Jira se cargan como pasos a prod -->
+<div id="jira-modal-overlay" class="modal-overlay">
+  <div class="modal jira-modal">
+    <div class="modal-header">
+      <h2>Sincronizar con Jira</h2>
+      <button class="modal-close" onclick="closeJiraSyncModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p id="jira-modal-info" class="jira-modal-info"></p>
+      <div id="jira-modal-avisos" class="jira-modal-avisos" style="display:none"></div>
+      <div class="jira-modal-controls">
+        <input type="text" id="jira-modal-filtro" placeholder="Filtrar por OTC, tema o producto…">
+        <label class="jira-check"><input type="checkbox" id="jira-modal-marcar-todos"> Marcar todos</label>
+        <label class="jira-check"><input type="checkbox" id="jira-modal-mostrar-registrados"> Mostrar ya registrados</label>
+      </div>
+      <div id="jira-modal-lista" class="jira-modal-lista"></div>
+    </div>
+    <div class="modal-footer">
+      <span id="jira-modal-contador" class="jira-modal-contador"></span>
+      <div class="modal-footer-right">
+        <button class="btn btn-ghost" onclick="closeJiraSyncModal()">Cancelar</button>
+        <button id="jira-modal-confirmar" class="btn btn-primary" disabled>Agregar seleccionados</button>
       </div>
     </div>
   </div>
